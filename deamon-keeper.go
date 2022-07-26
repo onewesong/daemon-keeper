@@ -46,7 +46,7 @@ func main() {
 			return
 		case syscall.SIGQUIT:
 			log.Println("kill cmd with pid", pid)
-			err := syscall.Kill(pid, syscall.SIGKILL)
+			err := syscall.Kill(pid, syscall.SIGQUIT)
 			if err != nil {
 				log.Println("kill cmd failed:", err)
 			}
