@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/exec"
@@ -21,7 +22,8 @@ var (
 	Continue = kingpin.Flag("continue", "continue running after command finished").Short('C').Bool()
 	noHup    = kingpin.Flag("no-hup", "").Short('N').Bool()
 
-	pid int
+	pid         int
+	ctx, cancel = context.WithCancel(context.Background())
 )
 
 func main() {
@@ -30,7 +32,8 @@ func main() {
 	log.Println("deamon_keeper start. pid:", os.Getpid())
 
 	preStart()
-	go runCmd(*command)
+
+	go runCmd(ctx, *command)
 	go checkPidRunning(*pidFPath, *interval)
 
 	c := make(chan os.Signal, 1)
@@ -45,11 +48,12 @@ func main() {
 			log.Println("exit")
 			return
 		case syscall.SIGQUIT:
-			log.Println("kill cmd with pid", pid)
-			err := syscall.Kill(pid, syscall.SIGQUIT)
-			if err != nil {
-				log.Println("kill cmd failed:", err)
-			}
+			cancel()
+			// log.Println("kill cmd with pid", pid)
+			// err := syscall.Kill(pid, syscall.SIGQUIT)
+			// if err != nil {
+			// 	log.Println("kill cmd failed:", err)
+			// }
 		case syscall.SIGHUP:
 			if *noHup {
 				log.Println("no hup")
@@ -61,9 +65,9 @@ func main() {
 	}
 }
 
-func runCmd(command string) {
+func runCmd(ctx context.Context, command string) {
 	log.Println("exec", command)
-	cmd := exec.Command("bash", "-c", command)
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	// cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -110,7 +114,8 @@ func checkPidRunning(pidFPath string, interval int) {
 		// pid, _ := OS.ReadFirstLineAsInt(pidFPath)
 		if pid > 0 && !OS.IsPidRunning(pid) {
 			log.Printf("daemon pid(%d) is not running, restarting", pid)
-			runCmd(*command)
+			ctx, cancel = context.WithCancel(context.Background())
+			runCmd(ctx, *command)
 		}
 		time.Sleep(time.Duration(interval) * time.Second)
 	}
