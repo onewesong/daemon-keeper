@@ -16,8 +16,9 @@ import (
 
 var (
 	interval = kingpin.Flag("interval", "check pid running interval").Short('i').Default("1").Int()
-	pidFPath = kingpin.Flag("pid-file", "pid file path").Short('p').Default("/tmp/deamon.pid").String()
+	pidFPath = kingpin.Flag("pid-file", "pid file path. if empty, then will not write pid to file").Short('p').Default("/tmp/deamon.pid").String()
 	command  = kingpin.Flag("cmd", "command to run").Short('c').Required().String()
+	Continue = kingpin.Flag("continue", "continue running after command finished").Short('C').Bool()
 )
 
 func main() {
@@ -59,6 +60,13 @@ func runCmd(command string) {
 	pid := cmd.Process.Pid
 	writePidFile(pid)
 	cmd.Wait()
+	if cmd.ProcessState.Success() {
+		if !*Continue {
+			log.Println("cmd normal finished, exit")
+			clean()
+			os.Exit(0)
+		}
+	}
 }
 
 func preStart() {
@@ -73,6 +81,9 @@ func clean() {
 }
 
 func writePidFile(pid int) {
+	if *pidFPath == "" {
+		return
+	}
 	err := os.WriteFile(*pidFPath, []byte(strconv.Itoa(pid)), 0644)
 	if err != nil {
 		log.Fatalf("writePidFile failed: %s", err)
@@ -83,9 +94,8 @@ func writePidFile(pid int) {
 func checkPidRunning(pidFPath string, interval int) {
 	for {
 		pid, _ := OS.ReadFirstLineAsInt(pidFPath)
-		println(pid, OS.IsPidRunning(pid))
 		if pid > 0 && !OS.IsPidRunning(pid) {
-			log.Println("daemon ", pid, "is not running, restarting")
+			log.Printf("daemon pid(%d) is not running, restarting", pid)
 			runCmd(*command)
 		}
 		time.Sleep(time.Duration(interval) * time.Second)
