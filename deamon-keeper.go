@@ -16,13 +16,18 @@ import (
 
 var (
 	interval = kingpin.Flag("interval", "check pid running interval").Short('i').Default("1").Int()
-	pidFPath = kingpin.Flag("pid-file", "pid file path. if empty, then will not write pid to file").Short('p').Default("/tmp/deamon.pid").String()
+	pidFPath = kingpin.Flag("pid-file", "pid file path. if empty, then will not write pid to file").Short('p').Default("").String()
 	command  = kingpin.Flag("cmd", "command to run").Short('c').Required().String()
 	Continue = kingpin.Flag("continue", "continue running after command finished").Short('C').Bool()
+	noHup    = kingpin.Flag("no-hup", "").Short('N').Bool()
+
+	pid int
 )
 
 func main() {
 	kingpin.Parse()
+
+	log.Println("deamon_keeper start. pid:", os.Getpid())
 
 	preStart()
 	go runCmd(*command)
@@ -32,15 +37,24 @@ func main() {
 	signal.Notify(c, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGINT)
 	for {
 		s := <-c
-		log.Printf("pppd_keeper get a signal %s\n", s.String())
+		log.Printf("deamon_keeper get a signal %s\n", s.String())
 		switch s {
-		case syscall.SIGQUIT, syscall.SIGTERM, syscall.SIGSTOP, syscall.SIGINT:
+		case syscall.SIGTERM, syscall.SIGSTOP, syscall.SIGINT:
 			log.Println("exec clean")
 			clean()
 			log.Println("exit")
 			return
+		case syscall.SIGQUIT:
+			log.Println("kill cmd with pid", pid)
+			err := syscall.Kill(pid, syscall.SIGKILL)
+			if err != nil {
+				log.Println("kill cmd failed:", err)
+			}
 		case syscall.SIGHUP:
-			// keep running
+			if *noHup {
+				log.Println("no hup")
+				continue
+			}
 		default:
 			return
 		}
@@ -57,7 +71,7 @@ func runCmd(command string) {
 	if err != nil {
 		log.Println(err)
 	}
-	pid := cmd.Process.Pid
+	pid = cmd.Process.Pid
 	writePidFile(pid)
 	cmd.Wait()
 	if cmd.ProcessState.Success() {
@@ -72,7 +86,7 @@ func runCmd(command string) {
 func preStart() {
 	pid, _ := OS.ReadFirstLineAsInt(*pidFPath)
 	if pid > 0 && OS.IsPidRunning(pid) {
-		log.Fatalf("another pppd_keeper is running with pid %d", pid)
+		log.Fatalf("another deamon_keeper is running cmd with pid %d", pid)
 	}
 }
 
@@ -93,7 +107,7 @@ func writePidFile(pid int) {
 
 func checkPidRunning(pidFPath string, interval int) {
 	for {
-		pid, _ := OS.ReadFirstLineAsInt(pidFPath)
+		// pid, _ := OS.ReadFirstLineAsInt(pidFPath)
 		if pid > 0 && !OS.IsPidRunning(pid) {
 			log.Printf("daemon pid(%d) is not running, restarting", pid)
 			runCmd(*command)
